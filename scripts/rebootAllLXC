@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+if [ "$1" -eq "1" ]; then
+    DEBUG=1
+else
+    DEBUG=0
+fi
+
+# Reboot all LXC containers
+
+logName="/var/log/$(basename $0).log"
+echo "[info] Rebooting all LXC" | tee -a $logName
+
+tempFile=$(mktemp)
+trap "rm -f $tempFile" EXIT
+
+pct list | awk 'NR>1 {print NF, $1, $2, $3, $NF}' | while read -r field_count vmid status locked name; do
+    if [ $field_count -eq 3 ]; then
+        locked=""
+    fi
+    if [ $DEBUG -eq 1 ]; then
+        echo "[debug] Processing $name ($vmid) with status='$status' and locked='$locked'"
+    fi
+
+    if [ ! "$locked" == "" ]; then
+        echo "[info] Skipping $name ($vmid) because it is $locked" | tee -a $logName
+    elif [ "$status" == "running" ]; then
+        echo $vmid >> $tempFile
+    else
+        echo "[info] Skipping $name ($vmid) because it is $status" | tee -a $logName
+    fi
+done
+
+ids=($(cat $tempFile))
+rm -f $tempFile
+
+echo "[info] Stopping ${#ids[@]} Containers" | tee -a $logName
+for vmid in "${ids[@]}"; do
+    if [ $DEBUG -eq 1 ]; then
+        echo "[debug] Stopping $vmid " | tee -a $logName
+    fi
+    pct stop $vmid 2>&1 | tee -a $logName > /dev/null 2>&1 &
+done
+if [ $DEBUG -eq 1 ]; then
+    echo "[debug] Jobs : ($(jobs -p | wc -l))"
+fi
+wait > /dev/null 2>&1
+
+echo "[info] Starting ${#ids[@]} Containers" | tee -a $logName
+for vmid in "${ids[@]}"; do
+    if [ $DEBUG -eq 1 ]; then
+        echo "[debug] Starting $vmid" | tee -a $logName
+    fi
+    pct start $vmid -d 2>&1 | tee -a $logName > /dev/null 2>&1 &
+done
+
+if [ $DEBUG -eq 1 ]; then
+    echo "[debug] Jobs : ($(jobs -p | wc -l))"
+fi
+wait > /dev/null 2>&1
+echo "[info] Finished rebooting all LXC" | tee -a $logName
