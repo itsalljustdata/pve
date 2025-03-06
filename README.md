@@ -1,33 +1,22 @@
 # pve
+
+![Proxmox!](https://raw.githubusercontent.com/selfhst/icons/refs/heads/main/png/proxmox.png "Proxmox")
+
+
 Scripts and functions for Proxmox
 
+### What's all this about then?
 
-add the following into the bottom of your `~/.bashrc`
+* Anything in the "functions" folder is to designed to be "source {}"-ed, and (generally) will be defining a function that you can execute from a bash shell
+* Files in the "scripts" folder are to be executable files which can be run from within bash shell. This folder should be added to your path
 
 
-```script
 
-pve_repo_base=~/git/pve
-folder_=$pve_repo_base/functions
-if [ -d $folder_ ]; then
-    for file in $(find $folder_ -type f -not -name ".git*"); do
-        source "$file"
-    done
-fi
+### To enable them for use
 
-folder_=$pve_repo_base/scripts
-if [ -d $folder_ ]; then
-    case ":$PATH:" in
-        *":$folder_:"*)
-            ;;
-        *)
-            # Append the folder to the PATH
-            declare -x PATH=$PATH:$folder_
-            ;;
-    esac
-    # Set any non-executable files to executable
-    find $folder_ -type f -not -name ".git*" -not -executable -print -exec chmod +x "{}" +
-fi
-unset folder_ pve_repo_base
+execute `./add_to_bashrc.sh`
 
-```
+This script appends the content[^1] of `./add_to_bashrc.sh.txt` to the bottom of `~/bashrc` (if not already there)
+
+
+[^1]: With a `sed` call to set the path of the repo home properly

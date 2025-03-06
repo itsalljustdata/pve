@@ -1,0 +1,138 @@
+#!/bin/bash
+
+
+if [ -z $1 ]; then
+    echo "No folder passed, assuming \$PWD"
+    folder='.'
+else
+    folder=$1
+fi
+
+folder=$(realpath "$folder")
+if [ ! -d "$folder" ]; then
+    echo "[ERROR] : $folder : Directory not found"
+    exit 1
+fi
+
+
+depthDefault=1
+if [ -z $2 ]; then
+    depth=$depthDefault
+elif [[ ! $2 =~ ^[0-9]+$ ]]; then
+        depth=0 #$depthDefault
+else
+    depth=$2
+fi
+
+
+
+get_file_count() {
+    local dir=$1
+    mapfile -t files < <(find "$dir" -type f -print)
+    local numFiles=${#files[@]}
+    echo "$numFiles"
+}
+
+# Function to get the size of files in a specified folder (excluding subfolders)
+get_file_size() {
+    local dir=$1
+    # local IFS__=$IFS
+    # IFS=$'\n'
+    mapfile -t files < <(find "$dir" -mindepth 1 -maxdepth 1 -type f -print)
+    # local files=$(find "$dir" -mindepth 1 -maxdepth 1 -type f -print)
+    # IFS=$IFS__
+    local numFiles=${#files[@]}
+    if [ $numFiles -gt 0 ]; then
+        size=$(du --si -c ${files[@]} 2>/dev/null | grep total$ | awk '{print $1}')
+    else
+        size="0k"
+    fi
+    echo "${size:-0k} $numFiles"
+}
+
+# Get the size of files in the top-level folder
+if [ $depth -gt 0 ]; then
+    top_level_size=$(get_file_size "$folder")
+
+    subfolder_sizes=()
+    # Get the sizes of files in the immediate subfolders
+    while IFS= read -r subfolder; do
+        size=$(get_file_size "$subfolder")
+        printf -v formatted_size "%s\t%s" "$size" "$subfolder"
+        subfolder_sizes+=("$formatted_size")
+    done < <(find "$folder" -mindepth 1 -maxdepth $depth -mount -type d)
+    printf -v top_level_formatted "%s\t%s" "$top_level_size" "$folder"
+    # Combine the sizes
+    filesOnly=( \
+    "${top_level_formatted}" \
+    "${subfolder_sizes[@]}"
+    )
+    maxDepth=$((depth + 1))
+    IFS__=$IFS
+    IFS=$'\n'
+    mapfile -t arrLowest < <(find "$folder" -mindepth $maxDepth -maxdepth $maxDepth -mount -type d -exec du --max-depth=0 --one-file-system --si {} + 2>/dev/null)
+    IFS=$IFS__
+    allLvl=("${filesOnly[@]}" "${arrLowest[@]}")
+    unset top_level_size subfolder_sizes top_level_formatted maxDepth IFS__
+else
+    mapfile -t allLvl < <(du --summarize --si "$folder")
+fi
+
+
+
+declare maxLengths=( 5 5 4 ) # Files Size Path
+reformatted=()
+paths=()
+
+for line in "${allLvl[@]}"; do
+
+    IFS=$' \t' read -r size fileCount path <<< "$line"
+
+    # Check if fileCount is empty (i.e., the line has only 2 fields)
+    if [ -z "$path" ]; then
+        # no filecount (a du output)
+        path=$fileCount
+        fileCount=$(get_file_count "$path")
+    fi
+
+    if [ ${#size} -gt ${maxLengths[0]} ]; then
+        maxLengths[0]=${#size}
+    fi
+    if [ ${#fileCount} -gt ${maxLengths[1]} ]; then
+        maxLengths[1]=${#fileCount}
+    fi
+    if [ ${#path} -gt ${maxLengths[2]} ]; then
+        maxLengths[2]=${#path}
+    fi
+
+    paths+=( "$path" )
+
+    newLine="$size\t$fileCount\t$path"
+
+    reformatted+=("$(echo -e "$newLine")")
+
+done
+
+
+titles=( "Size" "Files" "Path" )
+printf "%s\t" "${titles[@]}"; printf "\n"
+
+
+underlines=()
+for len in "${maxLengths[@]}"; do
+    underlines+=( $(printf '%*s' "$len" '' | tr ' ' '-') )
+done
+printf "%s\t" "${underlines[@]}"; printf "\n"
+
+sorted_paths=( $(printf "%s\n" "${paths[@]}" | LC_ALL=C sort) )
+
+for path in "${sorted_paths[@]}"; do
+    for item in "${reformatted[@]}"; do
+        if [[ "$item" == *"$path" ]]; then
+            printf "%s\n" "$item"
+        fi
+    done
+done
+
+
+unset folder depth depthDefault allLvl maxLengths paths reformatted titles underlines sorted_paths newLine
